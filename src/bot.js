@@ -41,6 +41,7 @@ const Bot = function(logOnOptions, loginindex, proxies) {
     this.playedAppIDs = [];
     this.connectionWatchdogInterval = null;
     this.idleRefreshInterval = null;
+    this.loginTimeout = null;
 
     // Create new steam-user bot object. Disable autoRelogin as we have our own queue system
     this.client = new SteamUser({
@@ -99,7 +100,9 @@ Bot.prototype.login = async function() {
     this.startConnectionWatchdog();
 
     // Set a timeout for the logOn call itself - if loggedOn doesn't fire within 60s, force a relog
-    const loginTimeout = setTimeout(() => {
+    if (this.loginTimeout) clearTimeout(this.loginTimeout);
+    this.loginTimeout = setTimeout(() => {
+        this.loginTimeout = null;
         if (!this.client.steamID) {
             // LoggedOn never fired
             logger(
@@ -111,7 +114,8 @@ Bot.prototype.login = async function() {
     }, 60000);
 
     const clearLoginTimeout = () => {
-        clearTimeout(loginTimeout);
+        clearTimeout(this.loginTimeout);
+        this.loginTimeout = null;
         this.client.removeListener("loggedOff", clearLoginTimeout);
         this.client.removeListener("disconnected", clearLoginTimeout);
     };
@@ -349,7 +353,11 @@ Bot.prototype.handleRelog = function() {
     // Call logPlaytime to print session results and reset startedPlayingTimestamp
     this.logPlaytimeToFile();
 
-    // Clear any existing watchdog/refresh intervals
+    // Clear any existing watchdog/refresh intervals and pending login timers
+    if (this.loginTimeout) {
+        clearTimeout(this.loginTimeout);
+        this.loginTimeout = null;
+    }
     if (this.connectionWatchdogInterval) {
         clearInterval(this.connectionWatchdogInterval);
         this.connectionWatchdogInterval = null;
@@ -390,23 +398,26 @@ Bot.prototype.handleRelog = function() {
 
             this.startConnectionWatchdog();
 
-            const loginTimeout = setTimeout(() => {
-            if (!this.client.steamID) {
-                // LoggedOn never fired
-                logger(
-                    "warn",
-                    `[${this.logOnOptions.accountName}] Login timeout exceeded (60s). Steam server may be down for maintenance. Forcing relog...`,
-                );
-                // Remove from relog queue first so handleRelog() can re-add and retry (account is at pos 0 here)
-                const queueIdx = controller.relogQueue.indexOf(this.loginindex);
-                if (queueIdx !== -1) controller.relogQueue.splice(queueIdx, 1);
+            if (this.loginTimeout) clearTimeout(this.loginTimeout);
+            this.loginTimeout = setTimeout(() => {
+                this.loginTimeout = null;
+                if (!this.client.steamID) {
+                    // LoggedOn never fired
+                    logger(
+                        "warn",
+                        `[${this.logOnOptions.accountName}] Login timeout exceeded (60s). Steam server may be down for maintenance. Forcing relog...`,
+                    );
+                    // Remove from relog queue first so handleRelog() can re-add and retry (account is at pos 0 here)
+                    const queueIdx = controller.relogQueue.indexOf(this.loginindex);
+                    if (queueIdx !== -1) controller.relogQueue.splice(queueIdx, 1);
 
-                this.handleRelog();
-            }
+                    this.handleRelog();
+                }
             }, 60000);
 
             const clearLoginTimeout = () => {
-                clearTimeout(loginTimeout);
+                clearTimeout(this.loginTimeout);
+                this.loginTimeout = null;
                 this.client.removeListener("loggedOff", clearLoginTimeout);
                 this.client.removeListener("disconnected", clearLoginTimeout);
             };
