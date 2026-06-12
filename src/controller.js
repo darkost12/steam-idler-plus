@@ -37,49 +37,38 @@ logger.options({
 
 
 /**
- * Helper function to import login information from accounts.txt
+ * Helper function to import login information from config.json accounts array
  * @returns {Promise} logininfo object on success, bot is stopped on failure
  */
 function importLogininfo() {
     return new Promise((resolve) => {
-        logger("info", "Loading logininfo from accounts.txt...", false, true);
+        logger("info", "Loading logininfo from config.json...", false, true);
 
-        let logininfo = {};
+        const accounts = config.accounts;
 
-        // Import data from accounts.txt
-        if (fs.existsSync("./shared/accounts.txt")) {
-            let data = fs.readFileSync("./shared/accounts.txt", "utf8").split("\n");
-
-            if (data.length > 0 && data[0].startsWith("//Comment")) data = data.slice(1); // Remove comment from array
-
-            if (data != "") {
-                logininfo = {}; // Set empty object
-
-                data.forEach((e) => {
-                    if (e.length < 2) return; // If the line is empty ignore it to avoid issues like this: https://github.com/3urobeat/steam-comment-service-bot/issues/80
-                    e = e.split(":");
-                    e[e.length - 1] = e[e.length - 1].replace("\r", ""); // Remove Windows next line character from last index (which has to be the end of the line)
-
-                    // Format logininfo object and use accountName as key to allow the order to change
-                    logininfo[e[0]] = {
-                        accountName: e[0],
-                        password: e[1],
-                        sharedSecret: e[2],
-                        steamGuardCode: null
-                    };
-                });
-
-                logger("info", `Found ${Object.keys(logininfo).length} accounts in accounts.txt, not checking for logininfo.json...`, false, true, logger.animation("loading"));
-
-                return resolve(logininfo);
-            } else {
-                logger("error", "No accounts found in accounts.txt! Aborting...");
-                process.exit(1);
-            }
-        } else {
-            logger("error", "No accounts found in accounts.txt! Aborting...");
+        if (!Array.isArray(accounts) || accounts.length === 0) {
+            logger("error", "No accounts found in config.json! Aborting...");
             process.exit(1);
         }
+
+        const logininfo = {};
+
+        accounts.forEach((acc) => {
+            logininfo[acc.login] = {
+                accountName: acc.login,
+                password: acc.password,
+                sharedSecret: acc.sharedSecret || null,
+                steamGuardCode: null,
+                // Per-account settings (fall back to global config values)
+                onlinestatus: acc.onlinestatus ?? config.onlinestatus ?? 1,
+                afkMessage: acc.afkMessage ?? config.afkMessage ?? null,
+                playingGames: acc.playingGames ?? config.playingGames ?? []
+            };
+        });
+
+        logger("info", `Found ${Object.keys(logininfo).length} accounts in config.json...`, false, true, logger.animation("loading"));
+
+        resolve(logininfo);
     });
 }
 
@@ -137,7 +126,7 @@ function checkForUpdate() {
                 if (onlineVersion && onlineVersion != localVersion) {
                     logger("", `${logger.colors.fggreen}Update available!${logger.colors.reset} Your version: ${logger.colors.fgred}${localVersion}${logger.colors.reset} | New version: ${logger.colors.fggreen}${onlineVersion}`, true);
                     logger("", "", true);
-                    logger("", `Download it here and transfer your accounts.txt, config.json & proxies.txt:\n${logger.colors.fgcyan}${logger.colors.underscore}https://github.com/3urobeat/steam-idler/archive/refs/heads/main.zip`, true);
+                    logger("", `Download it here and transfer your config.json & proxies.txt:\n${logger.colors.fgcyan}${logger.colors.underscore}https://github.com/3urobeat/steam-idler/archive/refs/heads/main.zip`, true);
                     logger("", "", true);
                 }
             });

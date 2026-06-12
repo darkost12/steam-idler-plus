@@ -175,28 +175,19 @@ Bot.prototype.attachEventListeners = function() {
         }
 
         // Set online status if enabled (https://github.com/DoctorMcKay/node-steam-user/blob/master/enums/EPersonaState.js)
-        if (config.onlinestatus) this.client.setPersona(config.onlinestatus);
+        if (this.logOnOptions.onlinestatus) this.client.setPersona(this.logOnOptions.onlinestatus);
 
-        // Check if user provided games specifically for this account
-        let configGames = config.playingGames;
-
-        if (typeof configGames[0] == "object") {
-            if (Object.keys(configGames[0]).includes(this.logOnOptions.accountName)) {
-                configGames = configGames[0][this.logOnOptions.accountName]; // Get the specific settings for this account if included
-            } else {
-                configGames = configGames.slice(1); // ...otherwise remove object containing acc specific settings to use the generic ones
-            }
-        }
+        const playingGames = this.logOnOptions.playingGames || [];
 
         logger(
             "info",
-            `[${this.logOnOptions.accountName}] Starting to idle ${configGames.length} games...`,
+            `[${this.logOnOptions.accountName}] Starting to idle ${playingGames.length} games...`,
             false,
             true,
         );
-        this.client.gamesPlayed(configGames);
+        this.client.gamesPlayed(playingGames);
         this.startedPlayingTimestamp = Date.now();
-        this.playedAppIDs = configGames;
+        this.playedAppIDs = playingGames;
         this.refreshStats();
         this.startConnectionWatchdog();
         this.startIdleRefresh();
@@ -216,10 +207,10 @@ Bot.prototype.attachEventListeners = function() {
         );
 
         // Respond with afk message if enabled in config
-        if (config.afkMessage.length > 0) {
-            logger("info", "Responding with: " + config.afkMessage);
+        if (this.logOnOptions.afkMessage && this.logOnOptions.afkMessage.length > 0) {
+            logger("info", "Responding with: " + this.logOnOptions.afkMessage);
 
-            this.client.chat.sendFriendMessage(steamID, config.afkMessage);
+            this.client.chat.sendFriendMessage(steamID, this.logOnOptions.afkMessage);
         }
     });
 
