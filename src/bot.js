@@ -42,6 +42,7 @@ const Bot = function(logOnOptions, loginindex, proxies) {
     this.connectionWatchdogInterval = null;
     this.idleRefreshInterval = null;
     this.loginTimeout = null;
+    this.isRelogging = false; // Guard against parallel relog flows
 
     // Create new steam-user bot object. Disable autoRelogin as we have our own queue system
     this.client = new SteamUser({
@@ -173,6 +174,8 @@ Bot.prototype.attachEventListeners = function() {
                 1,
             );
         }
+
+        this.isRelogging = false;
 
         // Set online status if enabled (https://github.com/DoctorMcKay/node-steam-user/blob/master/enums/EPersonaState.js)
         if (this.logOnOptions.onlinestatus) this.client.setPersona(this.logOnOptions.onlinestatus);
@@ -334,7 +337,8 @@ Bot.prototype.recreateClient = function() {
  * Handles relogging this bot account
  */
 Bot.prototype.handleRelog = function() {
-    if (controller.relogQueue.includes(this.loginindex)) return; // Don't handle this request if account is already waiting for relog
+    if (this.isRelogging) return; // Don't handle this request if a relog flow is already running
+    this.isRelogging = true;
 
     // Call logPlaytime to print session results and reset startedPlayingTimestamp
     this.logPlaytimeToFile();
@@ -354,7 +358,9 @@ Bot.prototype.handleRelog = function() {
     }
 
     // Add account to queue
-    controller.relogQueue.push(this.loginindex);
+    if (!controller.relogQueue.includes(this.loginindex)) {
+        controller.relogQueue.push(this.loginindex);
+    }
 
     // Check if it's our turn to relog every 1 sec after waiting relogDelay ms
     setTimeout(() => {
@@ -393,10 +399,11 @@ Bot.prototype.handleRelog = function() {
                         "warn",
                         `[${this.logOnOptions.accountName}] Login timeout exceeded (60s). Steam server may be down for maintenance. Forcing relog...`,
                     );
-                    // Remove from relog queue first so handleRelog() can re-add and retry (account is at pos 0 here)
+                    // Remove from relog queue, reset flag, and retry
                     const queueIdx = controller.relogQueue.indexOf(this.loginindex);
                     if (queueIdx !== -1) controller.relogQueue.splice(queueIdx, 1);
 
+                    this.isRelogging = false;
                     this.handleRelog();
                 }
             }, 60000);
