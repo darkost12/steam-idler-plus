@@ -99,3 +99,13 @@ This also applies to when you stop the bot manually. To turn this whole feature 
 &nbsp;
 
 Thats it. A simple cross-platform Steam game idling script powered by [DoctorMcKay's steam-user library](https://github.com/DoctorMcKay/node-steam-user).
+
+&nbsp;
+
+## 📊 Results
+
+<div align="center">
+  <img src="assets/playtime-stats.jpg" width="300" alt="Playtime stats" />
+  <br/><br/>
+  <img src="assets/playtime-2weeks.jpg" width="400" alt="10,523 hours past 2 weeks" />
+</div>
