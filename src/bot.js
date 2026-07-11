@@ -40,7 +40,7 @@ const Bot = function(logOnOptions, loginindex, proxies) {
     this.startedPlayingTimestamp = 0;
     this.playedAppIDs = [];
     this.connectionWatchdogInterval = null;
-    this.idleRefreshInterval = null;
+    this.idleReassertInterval = null;
     this.loginTimeout = null;
     this.isRelogging = false; // Guard against parallel relog flows
 
@@ -193,7 +193,7 @@ Bot.prototype.attachEventListeners = function() {
         this.playedAppIDs = playingGames;
         this.refreshStats();
         this.startConnectionWatchdog();
-        this.startIdleRefresh();
+        this.startIdleReassert();
     });
 
     this.client.chat.on("friendMessage", (msg) => {
@@ -352,9 +352,9 @@ Bot.prototype.handleRelog = function() {
         clearInterval(this.connectionWatchdogInterval);
         this.connectionWatchdogInterval = null;
     }
-    if (this.idleRefreshInterval) {
-        clearInterval(this.idleRefreshInterval);
-        this.idleRefreshInterval = null;
+    if (this.idleReassertInterval) {
+        clearInterval(this.idleReassertInterval);
+        this.idleReassertInterval = null;
     }
 
     // Add account to queue
@@ -475,17 +475,15 @@ Bot.prototype.startConnectionWatchdog = function() {
     }, 30000);
 };
 
-Bot.prototype.startIdleRefresh = function() {
-    if (this.idleRefreshInterval) {
-        clearInterval(this.idleRefreshInterval);
+Bot.prototype.startIdleReassert = function() {
+    if (this.idleReassertInterval) {
+        clearInterval(this.idleReassertInterval);
     }
 
-    this.idleRefreshInterval = setInterval(() => {
+    this.idleReassertInterval = setInterval(() => {
         if (!this.playedAppIDs.length) return;
+        if (controller.relogQueue.includes(this.loginindex)) return;
 
-        this.client.gamesPlayed([]);
-        setTimeout(() => {
-            this.client.gamesPlayed(this.playedAppIDs);
-        }, 1000);
-    }, 900000);
+        this.client.gamesPlayed(this.playedAppIDs);
+    }, 3600000);
 };
