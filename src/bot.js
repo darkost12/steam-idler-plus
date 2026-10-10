@@ -43,6 +43,8 @@ const Bot = function(logOnOptions, loginindex, proxies) {
     this.idleReassertInterval = null;
     this.loginTimeout = null;
     this.isRelogging = false; // Guard against parallel relog flows
+    this.relogGeneration = 0; // Incremented to invalidate any pending timers of an older relog flow
+    this.relogTimers = []; // Pending timeouts/intervals of the current relog flow
 
     // Create new steam-user bot object. Disable autoRelogin as we have our own queue system
     this.client = new SteamUser({
@@ -120,10 +122,7 @@ Bot.prototype.login = async function() {
     this.client.once("loggedOff", clearLoginTimeout);
     this.client.once("disconnected", clearLoginTimeout);
 
-    setTimeout(
-        () => this.client.logOn({ refreshToken: refreshToken }),
-        config.loginDelay,
-    );
+    setTimeout(() => this.safeLogOn(refreshToken), config.loginDelay);
 };
 
 // Refresh stats on steamladder
@@ -176,6 +175,7 @@ Bot.prototype.attachEventListeners = function() {
         }
 
         this.isRelogging = false;
+        this.cancelRelogTimers(); // Kill any orphaned relog flow so it can't fire a second logOn later
 
         // Set online status if enabled (https://github.com/DoctorMcKay/node-steam-user/blob/master/enums/EPersonaState.js)
         if (this.logOnOptions.onlinestatus) this.client.setPersona(this.logOnOptions.onlinestatus);
@@ -289,7 +289,7 @@ Bot.prototype.attachEventListeners = function() {
                     "warn",
                     `[${this.logOnOptions.accountName}] Failed to relog. Repositioning to the back of the queue and trying again. ${err}`,
                 );
-                controller.relogQueue.splice(0, 1);
+                controller.relogQueue.splice(controller.relogQueue.indexOf(this.loginindex), 1);
             } else {
                 logger(
                     "info",
@@ -362,9 +362,17 @@ Bot.prototype.handleRelog = function() {
         controller.relogQueue.push(this.loginindex);
     }
 
+    // Invalidate any leftover timers from a previous flow and start a new generation
+    this.cancelRelogTimers();
+    const gen = this.relogGeneration;
+    const isStale = () => gen !== this.relogGeneration;
+
     // Check if it's our turn to relog every 1 sec after waiting relogDelay ms
-    setTimeout(() => {
+    this.relogTimers.push(setTimeout(() => {
+        if (isStale()) return;
+
         const relogInterval = setInterval(() => {
+        if (isStale()) return clearInterval(relogInterval);
         if (controller.relogQueue.indexOf(this.loginindex) != 0) return; // Not our turn? stop and retry in the next iteration
 
         clearInterval(relogInterval);
@@ -376,7 +384,9 @@ Bot.prototype.handleRelog = function() {
             `[${this.logOnOptions.accountName}] Client recreated. Relogging in ${config.loginDelay / 1000} seconds...`,
         );
 
-        setTimeout(async () => {
+        this.relogTimers.push(setTimeout(async () => {
+            if (isStale()) return;
+
             if (this.logOnOptions.sharedSecret) {
                 this.logOnOptions.steamGuardCode = SteamTotp.generateAuthCode(
                     this.logOnOptions.sharedSecret,
@@ -384,7 +394,7 @@ Bot.prototype.handleRelog = function() {
             }
 
             const refreshToken = await this.session.getToken();
-            if (!refreshToken) return;
+            if (!refreshToken || isStale()) return;
 
             logger("info", `[${this.logOnOptions.accountName}] Logging in...`);
 
@@ -393,6 +403,7 @@ Bot.prototype.handleRelog = function() {
             if (this.loginTimeout) clearTimeout(this.loginTimeout);
             this.loginTimeout = setTimeout(() => {
                 this.loginTimeout = null;
+                if (isStale()) return;
                 if (!this.client.steamID) {
                     // LoggedOn never fired
                     logger(
@@ -419,10 +430,35 @@ Bot.prototype.handleRelog = function() {
             this.client.once("loggedOff", clearLoginTimeout);
             this.client.once("disconnected", clearLoginTimeout);
 
-            this.client.logOn({ refreshToken: refreshToken });
-        }, config.loginDelay);
+            this.safeLogOn(refreshToken);
+        }, config.loginDelay));
         }, 1000);
-    }, config.relogDelay);
+        this.relogTimers.push(relogInterval);
+    }, config.relogDelay));
+};
+
+/**
+ * Cancels all pending timers of the current relog flow and invalidates it
+ */
+Bot.prototype.cancelRelogTimers = function() {
+    this.relogGeneration++;
+    this.relogTimers.forEach((t) => clearTimeout(t)); // ClearTimeout also clears intervals
+    this.relogTimers = [];
+};
+
+/**
+ * Calls logOn without crashing the process if steam-user is already mid-logon
+ * @param {string} refreshToken
+ */
+Bot.prototype.safeLogOn = function(refreshToken) {
+    try {
+        this.client.logOn({ refreshToken: refreshToken });
+    } catch (err) {
+        logger(
+            "warn",
+            `[${this.logOnOptions.accountName}] logOn() refused: ${err.message}. Ignoring duplicate login attempt.`,
+        );
+    }
 };
 
 // Logs playtime to playtime.txt file
