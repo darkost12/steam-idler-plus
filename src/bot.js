@@ -213,7 +213,8 @@ Bot.prototype.attachEventListeners = function() {
         if (this.logOnOptions.afkMessage && this.logOnOptions.afkMessage.length > 0) {
             logger("info", "Responding with: " + this.logOnOptions.afkMessage);
 
-            this.client.chat.sendFriendMessage(steamID, this.logOnOptions.afkMessage);
+            this.client.chat.sendFriendMessage(steamID, this.logOnOptions.afkMessage)
+                .catch((err) => logger("warn", `[${this.logOnOptions.accountName}] Failed to send AFK message: ${err}`));
         }
     });
 
@@ -313,9 +314,30 @@ Bot.prototype.attachEventListeners = function() {
 };
 
 Bot.prototype.recreateClient = function() {
+    const oldClient = this.client;
+
     try {
-        this.client.removeAllListeners();
-        this.client.logOff();
+        oldClient.removeAllListeners();
+        oldClient.chat.removeAllListeners();
+
+        // The logOff() of steam-user doesn't cancel a connection attempt that is still fetching the server list.
+        // That abandoned attempt may later emit 'error' (crashes the process if nobody listens) or even log in.
+        oldClient.on("error", (err) => {
+            logger("debug", `[${this.logOnOptions.accountName}] Ignoring error from discarded client: ${err}`);
+        });
+
+        // If the discarded client still manages to log in, it replaces the session of the live client.
+        // Log it off and, if the live client got kicked, relog it.
+        oldClient.on("loggedOn", () => {
+            logger("warn", `[${this.logOnOptions.accountName}] Discarded client logged in unexpectedly. Logging it off...`);
+            oldClient.logOff();
+
+            setTimeout(() => {
+                if (!this.client.steamID) this.handleRelog(); // No-op if a relog flow is already running
+            }, 5000);
+        });
+
+        oldClient.logOff();
     } catch (e) {
         logger(
             "warn",
