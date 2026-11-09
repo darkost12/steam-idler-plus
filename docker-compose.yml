@@ -1,0 +1,6 @@
+services:
+  steam-idler:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ./shared:/steam-idler-plus-main/shared

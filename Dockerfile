@@ -1,17 +1,20 @@
-FROM node:18
+FROM node:20-alpine AS build
+WORKDIR /app
 
-ADD https://github.com/darkost12/steam-idler/archive/refs/heads/main.zip .
+RUN apk add --no-cache git
 
-RUN set -ex ;\
-  apt-get update ;\
-  apt-get install unzip ;\
-  unzip main.zip
-
-WORKDIR /steam-idler-main
+ADD https://github.com/darkost12/steam-idler-plus/archive/refs/heads/main.tar.gz /tmp/src.tar.gz
+RUN tar -xzf /tmp/src.tar.gz --strip-components=1 -C /app \
+    && rm /tmp/src.tar.gz
 
 RUN set -ex ;\
-  npm install
+    npm install --omit=dev ;\
+    npm cache clean --force
+
+FROM node:20-alpine
+WORKDIR /steam-idler-plus-main
+COPY --from=build /app ./
 
 ENV HOME=/steam-idler-main/shared
 
-CMD node idler.js
+CMD ["node", "idler.js"]
