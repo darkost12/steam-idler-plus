@@ -1,6 +1,8 @@
 services:
   steam-idler:
     build: .
+    image: steam-idler:latest
+    container_name: steam-idler
     restart: unless-stopped
     volumes:
       - ./shared:/steam-idler-plus-main/shared
